@@ -26,6 +26,18 @@ from app.core.config import settings
 from app.core.database import init_database, get_db_manager
 from app.api import health, data, labels, backtest, experiments, websocket, system
 
+# 导入统一端口配置
+try:
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from ports_config import get_frontend_port
+    FRONTEND_PORT = get_frontend_port()
+except ImportError:
+    FRONTEND_PORT = 5187  # 默认前端端口
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,7 +59,8 @@ async def lifespan(app: FastAPI):
         
     except Exception as e:
         logger.error(f"服务启动失败: {e}")
-        sys.exit(1)
+        # 不要在lifespan中使用sys.exit()，因为它会导致FastAPI异常
+        raise RuntimeError(f"服务启动失败: {e}")  # 抛出RuntimeError让FastAPI处理
     
     yield
     
@@ -76,10 +89,19 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.DEBUG else None,
     )
 
-    # CORS 中间件
+    # CORS 中间件 - 使用动态端口配置
+    frontend_origins = [
+        f"http://localhost:{FRONTEND_PORT}",
+        f"http://127.0.0.1:{FRONTEND_PORT}",
+        "http://localhost:5173",  # Vite默认端口作为备选
+        "http://127.0.0.1:5173",
+        "http://localhost:5182",  # Electron可能使用的端口
+        "http://127.0.0.1:5182"
+    ]
+    
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://localhost:5182", "http://127.0.0.1:5173", "http://127.0.0.1:5182"],
+        allow_origins=frontend_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -161,8 +183,8 @@ def parse_args():
     parser.add_argument(
         "--port", 
         type=int, 
-        default=5318, 
-        help="服务端口 (默认: 5317)"
+        default=settings.PORT, 
+        help=f"服务端口 (默认: {settings.PORT})"
     )
     parser.add_argument(
         "--host", 

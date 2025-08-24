@@ -14,7 +14,8 @@ export default defineConfig({
     outDir: 'dist',
   },
   server: {
-    port: 5173,
+    port: 5187,
+    strictPort: true, // 端口被占用时直接失败，不尝试其他端口
     host: 'localhost'
   }
 })

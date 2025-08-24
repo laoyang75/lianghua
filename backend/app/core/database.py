@@ -174,7 +174,11 @@ async def init_database():
             logger.info(f"检测到已存在的数据库，当前schema版本: {current_version}")
             # 执行升级前备份
             try:
-                await backup_database()
+                backup_result = await backup_database()
+                if backup_result:
+                    logger.info("升级前备份完成")
+                else:
+                    logger.warning("升级前备份被跳过（文件锁定）")
             except Exception as e:
                 logger.warning(f"升级前备份失败，将继续初始化: {e}")
         
@@ -326,13 +330,24 @@ async def backup_database():
         backup_path = settings.BACKUP_DIR / backup_filename
         
         # 复制数据库文件
-        shutil.copy2(source_path, backup_path)
-        logger.info(f"数据库备份完成: {backup_path}")
-        
-        # 清理旧备份（保留最近N个）
-        await cleanup_old_backups()
-        
-        return str(backup_path)
+        try:
+            shutil.copy2(source_path, backup_path)
+            logger.info(f"数据库备份完成: {backup_path}")
+            
+            # 清理旧备份（保留最近N个）
+            await cleanup_old_backups()
+            
+            return str(backup_path)
+        except PermissionError as pe:
+            # 文件被锁定，这在开发环境中很常见
+            logger.warning(f"数据库文件被锁定，跳过备份: {pe}")
+            return None
+        except OSError as oe:
+            if "being used by another process" in str(oe) or "WinError 32" in str(oe):
+                logger.warning(f"数据库文件被其他进程使用，跳过备份: {oe}")
+                return None
+            else:
+                raise
         
     except Exception as e:
         logger.error(f"数据库备份失败: {e}")

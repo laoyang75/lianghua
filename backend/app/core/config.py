@@ -3,18 +3,32 @@
 """
 
 import os
+import sys
 from pathlib import Path
 from typing import Optional
+
+# 添加项目根目录到Python路径，以便导入ports_config
+project_root = Path(__file__).parent.parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 
 class Settings:
     """应用配置类"""
     
     def __init__(self):
+        # 导入端口配置
+        try:
+            from ports_config import get_backend_port, ports_config
+            self.PORT: int = get_backend_port()
+            self.HOST: str = ports_config.get_backend_host()
+        except ImportError:
+            # 如果导入失败，使用默认值
+            self.PORT: int = 5318
+            self.HOST: str = "127.0.0.1"
+        
         # 基础配置
         self.DEBUG: bool = False
-        self.HOST: str = "127.0.0.1"
-        self.PORT: int = 5317
         self.VERSION: str = "1.0.0"
         
         # 路径配置

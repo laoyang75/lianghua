@@ -87,6 +87,62 @@ class DataDownloader:
             await send_task_failed(task_id, str(e))
             raise
     
+    async def download_custom_symbols(
+        self,
+        tickers: List[str],
+        start_date: str,
+        end_date: str,
+        task_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """下载自定义股票列表的数据"""
+        
+        await self._ensure_db()
+        
+        if not task_id:
+            task_id = f"download_{uuid.uuid4().hex[:8]}"
+        
+        if not tickers:
+            raise ValueError("股票代码列表不能为空")
+        
+        try:
+            # 创建任务记录
+            await self._create_custom_task_record(task_id, tickers, start_date, end_date)
+            
+            logger.info(f"开始下载自定义股票列表数据，共 {len(tickers)} 只股票")
+            await send_task_update(task_id, "running", 0, f"准备下载 {len(tickers)} 只股票数据")
+            
+            # 批量下载数据
+            download_results = await self._download_batch_data(
+                tickers, start_date, end_date, task_id
+            )
+            
+            # 处理下载结果
+            success_count = len([r for r in download_results if r['success']])
+            failed_count = len(download_results) - success_count
+            
+            # 更新任务状态
+            await self._update_task_status(task_id, "completed", 100, 
+                                         f"下载完成：{success_count} 成功，{failed_count} 失败")
+            
+            await send_task_completed(task_id, 
+                                    f"自定义股票数据下载完成：{success_count} 成功，{failed_count} 失败")
+            
+            return {
+                "task_id": task_id,
+                "type": "custom",
+                "tickers": tickers,
+                "total_symbols": len(tickers),
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "download_results": download_results
+            }
+            
+        except Exception as e:
+            logger.error(f"下载自定义股票数据失败 [任务ID: {task_id}]: {e}")
+            await self._update_task_status(task_id, "failed", 0, str(e))
+            await send_task_failed(task_id, str(e))
+            raise
+    
     async def _get_universe_symbols(self, universe: str) -> List[str]:
         """获取股票池的符号列表"""
         
@@ -352,6 +408,36 @@ class DataDownloader:
         self.active_tasks[task_id] = {
             "type": "data_download",
             "universe": universe,
+            "start_date": start_date,
+            "end_date": end_date,
+            "created_at": datetime.now().isoformat()
+        }
+    
+    async def _create_custom_task_record(
+        self, 
+        task_id: str, 
+        tickers: List[str], 
+        start_date: str, 
+        end_date: str
+    ):
+        """创建自定义股票下载任务记录"""
+        import json
+        
+        await self.db.execute("""
+            INSERT INTO tasks (task_id, type, status, progress, message, payload_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            task_id,
+            "custom_download",
+            "queued",
+            0,
+            f"准备下载自定义股票列表数据 ({len(tickers)} 只股票)",
+            json.dumps({"tickers": tickers, "start_date": start_date, "end_date": end_date})
+        ))
+        
+        self.active_tasks[task_id] = {
+            "type": "custom_download",
+            "tickers": tickers,
             "start_date": start_date,
             "end_date": end_date,
             "created_at": datetime.now().isoformat()

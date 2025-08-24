@@ -1,0 +1,22 @@
+{
+  "backend": {
+    "port": 5318,
+    "host": "127.0.0.1",
+    "description": "后端API服务端口"
+  },
+  "frontend": {
+    "port": 5187,
+    "host": "127.0.0.1",
+    "description": "前端开发服务器端口"
+  },
+  "websocket": {
+    "port": 5319,
+    "host": "127.0.0.1",
+    "description": "WebSocket服务端口"
+  },
+  "port_pool": {
+    "start": 5320,
+    "end": 5350,
+    "description": "动态端口分配池"
+  }
+}

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>量化回测系统 - 服务控制台</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1890ff;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status-card {
+            background: #f0f8ff;
+            border: 1px solid #1890ff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .btn {
+            background: #1890ff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        .btn:hover {
+            background: #40a9ff;
+        }
+        .log-area {
+            background: #001529;
+            color: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 量化回测系统服务控制台</h1>
+        
+        <div class="status-card">
+            <h3>📊 服务状态</h3>
+            <p><strong>后端服务:</strong> <span id="status">检查中...</span></p>
+            <p><strong>端口:</strong> <span id="port">5318</span></p>
+            <p><strong>前端界面:</strong> <a href="http://localhost:5187" target="_blank" id="frontendLink">http://localhost:5187</a></p>
+        </div>
+
+        <div class="status-card">
+            <h3>🎮 服务控制</h3>
+            <button class="btn" onclick="startBackend()">🚀 启动后端服务</button>
+            <button class="btn" onclick="checkHealth()">🏥 健康检查</button>
+            <button class="btn" onclick="openFrontend()">🖥️ 打开前端界面</button>
+        </div>
+
+        <div class="status-card">
+            <h3>📝 操作日志</h3>
+            <div class="log-area" id="logArea">
+                <div>[启动] 服务控制台已准备就绪</div>
+                <div>[信息] 点击按钮进行服务管理操作</div>
+            </div>
+        </div>
+
+        <div class="status-card">
+            <h3>💡 使用说明</h3>
+            <ul>
+                <li><strong>启动后端服务:</strong> 点击"启动后端服务"按钮</li>
+                <li><strong>检查状态:</strong> 使用"健康检查"验证服务</li>
+                <li><strong>访问界面:</strong> 点击"打开前端界面"访问Web界面</li>
+                <li><strong>查看日志:</strong> 在操作日志区域查看详细信息</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // 端口配置 - 可以通过外部配置动态加载
+        let BACKEND_PORT = 5318;
+        let FRONTEND_PORT = 5187;
+        
+        // 尝试从配置文件加载端口信息
+        async function loadPortConfig() {
+            try {
+                const response = await fetch('./ports_config.json');
+                if (response.ok) {
+                    const config = await response.json();
+                    BACKEND_PORT = config.backend.port;
+                    FRONTEND_PORT = config.frontend.port;
+                    
+                    // 更新页面显示
+                    document.getElementById('port').textContent = BACKEND_PORT;
+                    const frontendLink = document.getElementById('frontendLink');
+                    frontendLink.href = `http://localhost:${FRONTEND_PORT}`;
+                    frontendLink.textContent = `http://localhost:${FRONTEND_PORT}`;
+                    
+                    addLog(`✅ 已加载端口配置: 后端${BACKEND_PORT}, 前端${FRONTEND_PORT}`, 'success');
+                }
+            } catch (error) {
+                addLog(`⚠️ 无法加载端口配置，使用默认值`, 'info');
+            }
+        }
+        
+        function addLog(message, type = 'info') {
+            const logArea = document.getElementById('logArea');
+            const time = new Date().toLocaleTimeString();
+            const logLine = document.createElement('div');
+            logLine.innerHTML = `[${time}] ${message}`;
+            if (type === 'error') logLine.style.color = '#ff7875';
+            if (type === 'success') logLine.style.color = '#52c41a';
+            logArea.appendChild(logLine);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function updateStatus(status, color) {
+            document.getElementById('status').innerHTML = `<span style="color: ${color}">${status}</span>`;
+        }
+
+        async function startBackend() {
+            addLog('🚀 正在启动后端服务...');
+            updateStatus('启动中...', '#faad14');
+            
+            try {
+                // 这里可以添加实际的启动逻辑
+                addLog('ℹ️ 后端启动功能需要Python环境支持', 'info');
+                addLog(`💡 建议手动运行: python backend/app/main.py --port ${BACKEND_PORT}`, 'info');
+            } catch (error) {
+                addLog(`❌ 启动失败: ${error.message}`, 'error');
+                updateStatus('启动失败', '#ff4d4f');
+            }
+        }
+
+        async function checkHealth() {
+            addLog('🔍 正在检查后端服务健康状态...');
+            
+            try {
+                const response = await fetch(`http://127.0.0.1:${BACKEND_PORT}/healthz`);
+                if (response.ok) {
+                    const data = await response.json();
+                    addLog(`✅ 健康检查通过: ${data.status}`, 'success');
+                    updateStatus('运行中', '#52c41a');
+                } else {
+                    addLog(`❌ 健康检查失败: HTTP ${response.status}`, 'error');
+                    updateStatus('异常', '#ff4d4f');
+                }
+            } catch (error) {
+                addLog(`❌ 无法连接到后端服务: ${error.message}`, 'error');
+                updateStatus('已停止', '#d9d9d9');
+            }
+        }
+
+        function openFrontend() {
+            addLog('🖥️ 正在打开前端界面...');
+            window.open(`http://localhost:${FRONTEND_PORT}`, '_blank');
+        }
+
+        // 页面加载时自动检查状态
+        window.addEventListener('load', async () => {
+            await loadPortConfig();  // 先加载端口配置
+            setTimeout(checkHealth, 1000);
+            // 每30秒自动检查一次
+            setInterval(checkHealth, 30000);
+        });
+    </script>
+</body>
+</html>

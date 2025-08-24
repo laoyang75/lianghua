@@ -5,18 +5,37 @@ const fs = require('fs');
 const net = require('net');
 const os = require('os');
 
-// 开发环境检测
-const isDev = process.env.NODE_ENV === 'development';
+// 导入统一端口配置
+let portsConfig;
+try {
+  const projectRoot = path.join(__dirname, '..', '..');
+  const portsConfigPath = path.join(projectRoot, 'ports_config.json');
+  portsConfig = JSON.parse(fs.readFileSync(portsConfigPath, 'utf8'));
+} catch (error) {
+  console.warn('无法读取端口配置，使用默认值:', error.message);
+  portsConfig = {
+    backend: { port: 5318 },
+    frontend: { port: 5187 },
+    port_pool: { start: 5320, end: 5350 }
+  };
+}
+
+// 开发环境检测 - 更健壮的检测逻辑
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 // 全局变量
 let mainWindow;
 let serviceConsoleWindow;
 let backendProcess;
-let backendPort = 5317;
+let backendPort = portsConfig.backend.port;
 let lockFilePath;
 
-// 端口池
-const PORT_POOL = [5317, ...Array.from({length: 30}, (_, i) => 5320 + i)];
+// 端口池 - 使用配置的端口池
+const PORT_POOL = [
+  portsConfig.backend.port, 
+  ...Array.from({length: portsConfig.port_pool.end - portsConfig.port_pool.start + 1}, 
+                (_, i) => portsConfig.port_pool.start + i)
+];
 
 // 初始化锁文件路径
 function initLockFilePath() {
@@ -157,15 +176,57 @@ async function startBackendService() {
 
   // 启动新的后端进程
   try {
-    const pythonCommand = process.platform === 'win32' ? 'py' : 'python3';
-    const backendPath = isDev 
-      ? path.join(process.cwd(), '..', 'backend')
-      : path.join(process.resourcesPath, 'backend');
+    // 更灵活的Python命令检测 - 尝试多个可能的Python命令
+    const possiblePythonCommands = process.platform === 'win32' 
+      ? ['python', 'py', 'python3', 'python.exe']
+      : ['python3', 'python'];
+    
+    let pythonCommand = possiblePythonCommands[0]; // 默认使用第一个
+    
+    // 修正路径计算 - 始终从当前目录向上找项目根目录
+    const projectRoot = path.join(__dirname, '..', '..');  // frontend/electron -> 项目根目录
+    const backendPath = path.join(projectRoot, 'backend');
+    
+    console.log(`启动后端服务:`);
+    console.log(`- Python命令: ${pythonCommand}`);
+    console.log(`- 后端路径: ${backendPath}`);
+    console.log(`- 端口: ${availablePort}`);
+    console.log(`- 工作目录: ${backendPath}`);
+    
+    // 检查后端路径是否存在
+    if (!fs.existsSync(backendPath)) {
+      throw new Error(`后端路径不存在: ${backendPath}`);
+    }
+    
+    const mainPyPath = path.join(backendPath, 'app', 'main.py');
+    if (!fs.existsSync(mainPyPath)) {
+      throw new Error(`main.py文件不存在: ${mainPyPath}`);
+    }
 
-    backendProcess = spawn(pythonCommand, ['-m', 'app.main', '--port', availablePort.toString()], {
-      cwd: backendPath,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+    // Windows环境下使用专用的启动脚本
+    if (process.platform === 'win32') {
+      const startScript = path.join(projectRoot, 'start_backend.bat');
+      if (fs.existsSync(startScript)) {
+        console.log(`使用启动脚本: ${startScript}`);
+        backendProcess = spawn('cmd', ['/c', startScript], {
+          cwd: projectRoot,
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+      } else {
+        // 备选方案：直接执行
+        backendProcess = spawn(pythonCommand, ['app/main.py', '--port', availablePort.toString(), '--host', '127.0.0.1'], {
+          cwd: backendPath,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          shell: true
+        });
+      }
+    } else {
+      // Linux/Mac环境
+      backendProcess = spawn(pythonCommand, ['app/main.py', '--port', availablePort.toString(), '--host', '127.0.0.1'], {
+        cwd: backendPath,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+    }
 
     // 监听进程输出
     backendProcess.stdout.on('data', (data) => {
@@ -176,8 +237,15 @@ async function startBackendService() {
       console.error(`后端错误: ${data}`);
     });
 
-    backendProcess.on('close', (code) => {
-      console.log(`后端进程退出，代码: ${code}`);
+    backendProcess.on('error', (error) => {
+      console.error(`后端进程错误:`, error);
+    });
+
+    backendProcess.on('close', (code, signal) => {
+      console.log(`后端进程退出，代码: ${code}, 信号: ${signal}`);
+      if (code === 9009) {
+        console.error('错误代码9009通常表示Python命令未找到');
+      }
       removeLockFile();
       backendProcess = null;
     });
@@ -213,7 +281,7 @@ function stopBackendService() {
 }
 
 // 创建主窗口
-function createMainWindow() {
+async function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -227,7 +295,35 @@ function createMainWindow() {
 
   // 加载应用
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    // 使用配置的前端端口
+    const frontendPort = portsConfig.frontend.port;
+    const devUrl = `http://localhost:${frontendPort}`;
+    console.log(`开发模式：尝试连接到 ${devUrl}`);
+    
+    // 首先尝试配置的端口，然后尝试其他可能的端口
+    const possiblePorts = [frontendPort, 5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180, 5181, 5182];
+    let connected = false;
+    
+    for (const port of possiblePorts) {
+      try {
+        const testUrl = `http://localhost:${port}`;
+        console.log(`尝试连接到端口 ${port}`);
+        await mainWindow.loadURL(testUrl);
+        console.log(`成功连接到 ${testUrl}`);
+        connected = true;
+        break;
+      } catch (error) {
+        console.log(`端口 ${port} 连接失败`);
+        continue;
+      }
+    }
+    
+    if (!connected) {
+      console.error('无法连接到任何开发服务器端口');
+      // 作为备选，尝试加载服务控制台
+      mainWindow.loadFile(path.join(__dirname, 'service-console.html'));
+    }
+    
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
@@ -345,20 +441,26 @@ ipcMain.handle('restart-service', async () => {
 app.whenReady().then(async () => {
   initLockFilePath();
   
-  // 启动后端服务
-  const serviceStarted = await startBackendService();
-  if (!serviceStarted) {
-    console.error('后端服务启动失败，应用将退出');
-    app.quit();
-    return;
+  // 尝试启动后端服务，但不因失败而退出应用
+  console.log('正在尝试启动后端服务...');
+  try {
+    const serviceStarted = await startBackendService();
+    if (serviceStarted) {
+      console.log('后端服务启动成功');
+    } else {
+      console.warn('后端服务启动失败，将在图形化界面中提供手动控制选项');
+    }
+  } catch (error) {
+    console.error('后端服务启动出现异常:', error.message);
+    console.warn('继续启动图形化界面，用户可手动管理服务');
   }
 
-  createMainWindow();
+  await createMainWindow();
   createMenu();
 
-  app.on('activate', () => {
+  app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+      await createMainWindow();
     }
   });
 });

@@ -31,7 +31,11 @@
       "Bash(start D:AICursorlianghuatest-download.html)",
       "Bash(start:*)",
       "Bash(timeout:*)",
-      "Bash(del nul)"
+      "Bash(del nul)",
+      "Bash(cat:*)",
+      "Bash(del:*)",
+      "Bash(\"frontend/node_modules/.bin/electron\" start_service_console_only.js)",
+      "Bash(./cleanup_ports.bat)"
     ],
     "deny": [],
     "ask": [],

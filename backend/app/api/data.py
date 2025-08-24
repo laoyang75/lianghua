@@ -29,6 +29,14 @@ class DataDownloadRequest(BaseModel):
     source: str = Field(default="yfinance", description="数据源")
 
 
+class CustomDownloadRequest(BaseModel):
+    """自定义股票下载请求"""
+    tickers: List[str] = Field(..., description="股票代码列表，如['AAPL', 'GOOGL', 'MSFT']")
+    start_date: str = Field(..., description="开始日期 YYYY-MM-DD")
+    end_date: str = Field(..., description="结束日期 YYYY-MM-DD")
+    source: str = Field(default="yfinance", description="数据源")
+
+
 class TaskResponse(BaseModel):
     """任务响应"""
     task_id: str
@@ -132,6 +140,70 @@ async def start_data_download(request: DataDownloadRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启动下载失败: {str(e)}")
+
+
+@router.post("/download/custom", response_model=TaskResponse, summary="自定义股票下载")
+async def start_custom_download(request: CustomDownloadRequest):
+    """
+    下载自定义股票列表的数据
+    
+    支持用户指定任意股票代码列表进行下载
+    """
+    try:
+        from app.services.data_downloader import get_data_downloader
+        import uuid
+        import asyncio
+        
+        if not request.tickers:
+            raise HTTPException(status_code=400, detail="股票代码列表不能为空")
+        
+        # 清理和验证股票代码格式
+        cleaned_tickers = []
+        for ticker in request.tickers:
+            ticker = ticker.strip().upper()
+            if ticker:
+                cleaned_tickers.append(ticker)
+        
+        if not cleaned_tickers:
+            raise HTTPException(status_code=400, detail="没有有效的股票代码")
+        
+        downloader = get_data_downloader()
+        task_id = f"custom_{uuid.uuid4().hex[:8]}"
+        
+        # 在后台启动下载任务
+        async def background_custom_download():
+            try:
+                await downloader.download_custom_symbols(
+                    tickers=cleaned_tickers,
+                    start_date=request.start_date,
+                    end_date=request.end_date,
+                    task_id=task_id
+                )
+            except Exception as e:
+                from loguru import logger
+                logger.error(f"自定义下载任务失败: {e}")
+        
+        # 启动后台任务
+        from app.core.task_manager import get_task_manager
+        task_manager = get_task_manager()
+        await task_manager.create_task(
+            task_id=f"download_{task_id}",
+            coro=background_custom_download(),
+            task_type="custom_download",
+            metadata={"tickers": cleaned_tickers, "date_range": f"{request.start_date}-{request.end_date}"}
+        )
+        
+        return TaskResponse(
+            task_id=task_id,
+            type="custom_download",
+            status="queued",
+            message=f"自定义股票下载任务已启动: {len(cleaned_tickers)} 只股票"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"启动自定义下载失败: {str(e)}")
 
 
 @router.get("/symbols", summary="获取股票列表")

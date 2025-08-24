@@ -17,7 +17,12 @@ class ApiClient {
   private axiosInstance: any
 
   constructor() {
-    this.baseURL = 'http://localhost:5318'
+    // 尝试从环境变量或窗口对象获取后端端口配置
+    const backendPort = (window as any)?.BACKEND_PORT || 
+                       process.env.REACT_APP_BACKEND_PORT || 
+                       import.meta.env.VITE_BACKEND_PORT || 
+                       '5318'
+    this.baseURL = `http://localhost:${backendPort}`
     this.setupAxios()
   }
 
@@ -170,7 +175,14 @@ export class WebSocketClient {
   private maxReconnectAttempts = 5
   private reconnectInterval = 3000
 
-  constructor(port: number = 5318) {
+  constructor(port?: number) {
+    // 如果没有指定端口，尝试从配置获取
+    if (!port) {
+      port = parseInt((window as any)?.BACKEND_PORT || 
+                     process.env.REACT_APP_BACKEND_PORT || 
+                     import.meta.env.VITE_BACKEND_PORT || 
+                     '5318')
+    }
     this.url = `ws://localhost:${port}/ws/tasks`
   }
 

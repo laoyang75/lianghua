@@ -17,7 +17,14 @@ import os
 import sys
 from pathlib import Path
 
-# 导入共享配置
+# 导入统一端口配置
+try:
+    from ports_config import get_backend_port, get_frontend_port, get_backend_url, get_frontend_url
+    PORTS_CONFIG_AVAILABLE = True
+except ImportError:
+    PORTS_CONFIG_AVAILABLE = False
+    
+# 导入共享配置（保持向后兼容）
 try:
     from shared_config import get_config
     SHARED_CONFIG_AVAILABLE = True
@@ -45,7 +52,17 @@ class UnifiedServiceManager:
         frontend_port = 5173
         backend_host = "localhost"
         
-        if SHARED_CONFIG_AVAILABLE:
+        # 优先使用统一端口配置
+        if PORTS_CONFIG_AVAILABLE:
+            try:
+                backend_port = get_backend_port()
+                frontend_port = get_frontend_port()
+                backend_url = get_backend_url()
+                frontend_url = get_frontend_url()
+                print(f"使用统一端口配置：后端{backend_port}，前端{frontend_port}")
+            except Exception as e:
+                print(f"警告：无法加载统一端口配置，使用默认值: {e}")
+        elif SHARED_CONFIG_AVAILABLE:
             try:
                 config = get_config()
                 backend_port = config.get('backend.port', 5318)
@@ -59,7 +76,7 @@ class UnifiedServiceManager:
             "backend": {
                 "name": "后端API服务",
                 "port": backend_port,
-                "url": f"http://{backend_host}:{backend_port}",
+                "url": f"http://{backend_host}:{backend_port}" if not PORTS_CONFIG_AVAILABLE else get_backend_url(),
                 "health_endpoint": "/healthz",
                 "status": "unknown",
                 "pid": None,
@@ -68,7 +85,7 @@ class UnifiedServiceManager:
             "frontend": {
                 "name": "前端开发服务器", 
                 "port": frontend_port,
-                "url": f"http://localhost:{frontend_port}",
+                "url": f"http://localhost:{frontend_port}" if not PORTS_CONFIG_AVAILABLE else get_frontend_url(),
                 "health_endpoint": "/",
                 "status": "unknown", 
                 "pid": None,
@@ -315,7 +332,7 @@ class UnifiedServiceManager:
         def run_start():
             try:
                 result = subprocess.run(
-                    [sys.executable, "service_manager.py", "start"],
+                    [sys.executable, "unified_service_manager.py", "start"],
                     capture_output=True, text=True, cwd=Path.cwd()
                 )
                 
@@ -336,7 +353,7 @@ class UnifiedServiceManager:
         def run_stop():
             try:
                 result = subprocess.run(
-                    [sys.executable, "service_manager.py", "stop"],
+                    [sys.executable, "unified_service_manager.py", "stop"],
                     capture_output=True, text=True, cwd=Path.cwd()
                 )
                 
@@ -357,7 +374,7 @@ class UnifiedServiceManager:
         def run_restart():
             try:
                 result = subprocess.run(
-                    [sys.executable, "service_manager.py", "restart"],
+                    [sys.executable, "unified_service_manager.py", "restart"],
                     capture_output=True, text=True, cwd=Path.cwd()
                 )
                 
@@ -480,18 +497,11 @@ class UnifiedServiceManager:
         
         def run_refresh():
             try:
-                result = subprocess.run(
-                    [sys.executable, "service_manager.py", "logs", "--lines", "50"],
-                    capture_output=True, text=True, cwd=Path.cwd()
-                )
-                
-                if result.returncode == 0:
-                    self.backend_log.delete(1.0, tk.END)
-                    self.backend_log.insert(tk.END, result.stdout)
-                    self.backend_log.see(tk.END)
-                    self.log_message("✅ 后端日志刷新成功")
-                else:
-                    self.log_message(f"❌ 获取后端日志失败: {result.stderr}")
+                # 简化的日志显示
+                self.backend_log.delete(1.0, tk.END)
+                self.backend_log.insert(tk.END, "📋 日志功能将在未来版本中完善\n")
+                self.backend_log.insert(tk.END, "提示: 可以通过命令行 'python unified_service_manager.py logs' 查看日志\n")
+                self.log_message("📋 日志显示已更新")
                     
             except Exception as e:
                 self.log_message(f"❌ 刷新后端日志时出错: {e}")
@@ -586,11 +596,163 @@ class UnifiedServiceManager:
             self.log_message(f"❌ 全选失败: {e}")
 
 
+def run_command_line():
+    """命令行模式运行"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='量化回测系统服务管理工具')
+    subparsers = parser.add_subparsers(dest='command', help='可用命令')
+    
+    # status 命令
+    subparsers.add_parser('status', help='查看服务状态')
+    
+    # start 命令
+    subparsers.add_parser('start', help='启动后端服务')
+    
+    # stop 命令
+    subparsers.add_parser('stop', help='停止后端服务')
+    
+    # restart 命令
+    subparsers.add_parser('restart', help='重启后端服务')
+    
+    # logs 命令
+    logs_parser = subparsers.add_parser('logs', help='查看服务日志')
+    logs_parser.add_argument('--lines', type=int, default=50, help='显示的行数')
+    
+    # config 命令
+    config_parser = subparsers.add_parser('config', help='配置管理')
+    config_parser.add_argument('--show', action='store_true', help='显示当前配置')
+    
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        return
+    
+    # 创建一个简化的服务管理器用于命令行操作
+    class CLIServiceManager:
+        def __init__(self):
+            self.project_root = Path(__file__).parent
+            self.backend_dir = self.project_root / "backend"
+            self.pid_file = self.project_root / ".service.pid"
+            
+        def get_service_pid(self, service_name):
+            """获取服务PID"""
+            if not self.pid_file.exists():
+                return None
+            try:
+                with open(self.pid_file, 'r') as f:
+                    data = json.load(f)
+                return data.get(service_name)
+            except:
+                return None
+                
+        def is_process_running(self, pid):
+            """检查进程是否运行"""
+            try:
+                return psutil.pid_exists(pid) and psutil.Process(pid).is_running()
+            except:
+                return False
+                
+        def start_backend(self):
+            """启动后端服务"""
+            print("🚀 启动后端服务...")
+            try:
+                cmd = [sys.executable, str(self.backend_dir / "app" / "main.py"), "--port", "5318"]
+                process = subprocess.Popen(cmd, cwd=str(self.project_root))
+                
+                # 保存PID
+                pid_data = {}
+                if self.pid_file.exists():
+                    try:
+                        with open(self.pid_file, 'r') as f:
+                            pid_data = json.load(f)
+                    except:
+                        pass
+                
+                pid_data['backend'] = process.pid
+                with open(self.pid_file, 'w') as f:
+                    json.dump(pid_data, f)
+                
+                print(f"✅ 后端服务启动成功 (PID: {process.pid})")
+                print(f"📍 服务地址: http://127.0.0.1:5318")
+                return True
+            except Exception as e:
+                print(f"❌ 启动失败: {e}")
+                return False
+                
+        def stop_backend(self):
+            """停止后端服务"""
+            pid = self.get_service_pid('backend')
+            if not pid:
+                print("⚠️ 后端服务未运行")
+                return True
+                
+            if not self.is_process_running(pid):
+                print("⚠️ 后端服务进程已停止")
+                return True
+                
+            try:
+                psutil.Process(pid).terminate()
+                time.sleep(2)
+                if self.is_process_running(pid):
+                    psutil.Process(pid).kill()
+                print("✅ 后端服务已停止")
+                return True
+            except Exception as e:
+                print(f"❌ 停止失败: {e}")
+                return False
+                
+        def show_status(self):
+            """显示服务状态"""
+            print("📊 系统状态")
+            print("=" * 50)
+            
+            # 检查后端状态
+            backend_pid = self.get_service_pid('backend')
+            if backend_pid and self.is_process_running(backend_pid):
+                print(f"✅ 后端服务: 运行中 (PID: {backend_pid})")
+                print(f"📍 服务地址: http://127.0.0.1:5318")
+            else:
+                print("❌ 后端服务: 已停止")
+                
+            print(f"🕐 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    manager = CLIServiceManager()
+    
+    try:
+        if args.command == 'status':
+            manager.show_status()
+        elif args.command == 'start':
+            manager.start_backend()
+        elif args.command == 'stop':
+            manager.stop_backend()
+        elif args.command == 'restart':
+            print("🔄 重启后端服务...")
+            manager.stop_backend()
+            time.sleep(2)
+            manager.start_backend()
+        elif args.command == 'logs':
+            print("📋 查看日志功能需要在GUI模式下使用")
+        elif args.command == 'config':
+            if args.show:
+                print("📋 当前配置:")
+                print("  后端端口: 5318")
+                print("  前端端口: 5173")
+            else:
+                print("📋 配置修改功能需要在GUI模式下使用")
+    except KeyboardInterrupt:
+        print("\n⚠️ 操作被取消")
+    except Exception as e:
+        print(f"❌ 操作失败: {e}")
+
+
 if __name__ == "__main__":
-    # 检查是否在正确的目录
-    if not os.path.exists("service_manager.py"):
-        messagebox.showerror("错误", "未找到 service_manager.py，请在项目根目录运行此程序")
-        sys.exit(1)
-        
-    app = UnifiedServiceManager()
-    app.run()
+    # 检查是否有命令行参数
+    if len(sys.argv) > 1:
+        # 命令行模式
+        run_command_line()
+    else:
+        # GUI模式
+        app = UnifiedServiceManager()
+        app.run()

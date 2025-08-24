@@ -16,7 +16,7 @@ if "%1"=="" (
     goto end
 )
 
-python service_manager.py %*
+python unified_service_manager.py %*
 
 :end
 pause

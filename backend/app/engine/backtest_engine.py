@@ -14,16 +14,193 @@ from app.core.database import get_db_manager
 
 
 class BacktestEngine:
-    """回测引擎主类"""
+    """回测引擎主类 - 统一的回测框架"""
     
     def __init__(self):
         self.db = None
         self.results: Optional[Dict] = None
+        self.data_cache: Dict = {}
         
     async def _ensure_db(self):
         """确保数据库连接"""
         if self.db is None:
             self.db = await get_db_manager()
+    
+    async def run(
+        self,
+        strategy_type: str,
+        label_name: str,
+        start_date: str,
+        end_date: str,
+        initial_capital: float = 1000000.0,
+        rebalance_frequency: str = "monthly",
+        top_k: int = 20,
+        **strategy_params
+    ) -> Dict[str, Any]:
+        """
+        统一回测执行入口
+        
+        Args:
+            strategy_type: 策略类型
+            label_name: 标签名称 
+            start_date: 开始日期
+            end_date: 结束日期
+            initial_capital: 初始资金
+            rebalance_frequency: 调仓频率
+            top_k: 选择股票数量
+            **strategy_params: 策略参数
+            
+        Returns:
+            回测结果
+        """
+        logger.info(f"启动回测框架 - 策略: {strategy_type}, 标签: {label_name}")
+        
+        try:
+            await self._ensure_db()
+            
+            # 框架化的执行流程
+            data = await self._prepare_data(label_name, start_date, end_date)
+            signals = await self._execute_strategy(data, strategy_type, rebalance_frequency, top_k, **strategy_params)
+            portfolio_history, trades = await self._simulate_portfolio(data, signals, initial_capital)
+            metrics = await self._calculate_metrics(portfolio_history, trades)
+            
+            # 生成最终结果
+            return await self._generate_results(
+                strategy_type, label_name, start_date, end_date, 
+                initial_capital, metrics, portfolio_history, trades
+            )
+            
+        except Exception as e:
+            logger.error(f"回测执行失败: {e}")
+            raise
+    
+    async def _prepare_data(self, label_name: str, start_date: str, end_date: str) -> Dict[str, pl.DataFrame]:
+        """
+        数据准备阶段 - 获取和预处理所有必要数据
+        
+        Args:
+            label_name: 标签名称
+            start_date: 开始日期  
+            end_date: 结束日期
+            
+        Returns:
+            包含股票池和价格数据的字典
+        """
+        logger.info(f"准备回测数据 - 标签: {label_name}, 期间: {start_date} to {end_date}")
+        
+        # 获取股票池
+        stock_pool = await self._get_stock_pool(label_name, start_date, end_date)
+        if stock_pool.is_empty():
+            raise ValueError(f"标签 {label_name} 未找到股票数据")
+        
+        # 获取价格数据  
+        symbols = stock_pool['symbol'].to_list()
+        price_data = await self._get_price_data(symbols, start_date, end_date)
+        if price_data.is_empty():
+            raise ValueError("未找到价格数据")
+        
+        return {
+            "stock_pool": stock_pool,
+            "price_data": price_data,
+            "symbols": symbols
+        }
+    
+    async def _execute_strategy(
+        self, 
+        data: Dict[str, pl.DataFrame], 
+        strategy_type: str,
+        rebalance_frequency: str, 
+        top_k: int,
+        **strategy_params
+    ) -> pl.DataFrame:
+        """
+        策略执行阶段 - 根据策略类型生成交易信号
+        
+        Args:
+            data: 准备好的数据
+            strategy_type: 策略类型
+            rebalance_frequency: 调仓频率
+            top_k: 选择股票数量
+            **strategy_params: 策略参数
+            
+        Returns:
+            交易信号DataFrame
+        """
+        logger.info(f"执行策略逻辑 - 类型: {strategy_type}")
+        
+        return await self._generate_signals(
+            data["price_data"], strategy_type, rebalance_frequency, top_k, **strategy_params
+        )
+    
+    async def _simulate_portfolio(
+        self, 
+        data: Dict[str, pl.DataFrame], 
+        signals: pl.DataFrame, 
+        initial_capital: float
+    ) -> Tuple[pl.DataFrame, pl.DataFrame]:
+        """
+        组合模拟阶段 - 根据信号模拟交易和资金变化
+        
+        Args:
+            data: 数据集合
+            signals: 交易信号
+            initial_capital: 初始资金
+            
+        Returns:
+            (组合历史, 交易记录)
+        """
+        logger.info("模拟组合交易")
+        
+        return await self._simulate_trading(data["price_data"], signals, initial_capital)
+    
+    async def _generate_results(
+        self,
+        strategy_type: str,
+        label_name: str,
+        start_date: str,
+        end_date: str,
+        initial_capital: float,
+        metrics: Dict[str, Any],
+        portfolio_history: pl.DataFrame,
+        trades: pl.DataFrame
+    ) -> Dict[str, Any]:
+        """
+        结果生成阶段 - 整合所有回测结果
+        
+        Args:
+            strategy_type: 策略类型
+            label_name: 标签名称
+            start_date: 开始日期
+            end_date: 结束日期
+            initial_capital: 初始资金
+            metrics: 性能指标
+            portfolio_history: 组合历史
+            trades: 交易记录
+            
+        Returns:
+            完整的回测结果
+        """
+        result_hash = str(uuid.uuid4())
+        
+        result = {
+            "result_hash": result_hash,
+            "strategy_type": strategy_type,
+            "label_name": label_name,
+            "start_date": start_date,
+            "end_date": end_date,
+            "initial_capital": initial_capital,
+            "metrics": metrics,
+            "equity_curve": portfolio_history.select([
+                "date", "total_value"
+            ]).rename({"total_value": "value"}).to_dicts(),
+            "trades": trades.to_dicts(),
+            "created_at": datetime.now().isoformat()
+        }
+        
+        self.results = result
+        logger.info(f"回测完成，总收益率: {metrics.get('total_return', 0):.2%}")
+        
+        return result
         
     async def run_backtest(
         self,
@@ -36,10 +213,10 @@ class BacktestEngine:
         top_k: int = 20,
         **strategy_params
     ) -> Dict[str, Any]:
-        
-        await self._ensure_db()
         """
-        执行回测
+        执行回测 (向后兼容方法)
+        
+        该方法保持与旧代码的兼容性，内部调用新的框架化 run 方法
         
         Args:
             strategy_type: 策略类型 (例如: "momentum", "mean_reversion")  
@@ -54,55 +231,19 @@ class BacktestEngine:
         Returns:
             回测结果字典
         """
-        logger.info(f"开始回测: {strategy_type}, 标签: {label_name}, 期间: {start_date} - {end_date}")
+        logger.info(f"使用兼容模式执行回测: {strategy_type}, 标签: {label_name}")
         
-        try:
-            # 1. 获取股票池
-            stock_pool = await self._get_stock_pool(label_name, start_date, end_date)
-            if stock_pool.is_empty():
-                raise ValueError(f"标签 {label_name} 未找到股票数据")
-                
-            # 2. 获取价格数据
-            price_data = await self._get_price_data(stock_pool['symbol'].to_list(), start_date, end_date)
-            if price_data.is_empty():
-                raise ValueError("未找到价格数据")
-                
-            # 3. 生成交易信号
-            signals = await self._generate_signals(
-                price_data, strategy_type, rebalance_frequency, top_k, **strategy_params
-            )
-            
-            # 4. 执行交易模拟
-            portfolio_history, trades = await self._simulate_trading(
-                price_data, signals, initial_capital
-            )
-            
-            # 5. 计算性能指标
-            metrics = await self._calculate_metrics(portfolio_history, trades)
-            
-            # 6. 生成结果
-            result_hash = str(uuid.uuid4())
-            self.results = {
-                "result_hash": result_hash,
-                "strategy_type": strategy_type,
-                "label_name": label_name,
-                "start_date": start_date,
-                "end_date": end_date,
-                "initial_capital": initial_capital,
-                "metrics": metrics,
-                "equity_curve": portfolio_history.select([
-                    "date", "total_value"
-                ]).rename({"total_value": "value"}).to_dicts(),
-                "trades": trades.to_dicts(),
-                "created_at": datetime.now().isoformat()
-            }
-            
-            logger.info(f"回测完成，总收益率: {metrics['total_return']:.2%}")
-            return self.results
-            
-        except Exception as e:
-            logger.error(f"回测执行失败: {e}")
-            raise
+        # 调用新的框架化方法
+        return await self.run(
+            strategy_type=strategy_type,
+            label_name=label_name,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=initial_capital,
+            rebalance_frequency=rebalance_frequency,
+            top_k=top_k,
+            **strategy_params
+        )
 
     async def _get_stock_pool(self, label_name: str, start_date: str, end_date: str) -> pl.DataFrame:
         """获取股票池"""
