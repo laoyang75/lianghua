@@ -215,10 +215,10 @@ class ServiceManager:
             
             print_info(f"启动后端服务: {' '.join(cmd)}")
             
-            # 启动进程
+            # 启动进程 - 使用项目根目录作为工作目录
             process = subprocess.Popen(
                 cmd,
-                cwd=str(self.backend_dir),
+                cwd=str(self.project_root),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0

@@ -99,12 +99,23 @@ class BacktestEngine:
 
     async def _get_stock_pool(self, label_name: str, start_date: str, end_date: str) -> pl.DataFrame:
         """获取股票池"""
-        query = f"""
-        SELECT DISTINCT symbol 
+        # 首先检查标签是否存在
+        label_query = f"""
+        SELECT name, start_date, end_date 
         FROM labels 
         WHERE name = '{label_name}'
-        AND trade_date >= '{start_date}'
-        AND trade_date <= '{end_date}'
+        """
+        label_result = await self.db.query_df(label_query)
+        
+        if label_result.height == 0:
+            raise ValueError(f"标签 '{label_name}' 不存在")
+        
+        # 从标签股票表获取股票池
+        query = f"""
+        SELECT DISTINCT symbol 
+        FROM label_stocks 
+        WHERE label_name = '{label_name}'
+        ORDER BY rank
         """
         return await self.db.query_df(query)
     

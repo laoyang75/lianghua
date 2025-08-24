@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import os
 import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,8 +17,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 
-# 添加项目根目录到 Python 路径
-sys.path.append(str(Path(__file__).parent.parent))
+# 确保项目根目录在 Python 路径中，但避免重复添加
+_project_root = str(Path(__file__).parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from app.core.config import settings
 from app.core.database import init_database, get_db_manager
@@ -50,7 +53,13 @@ async def lifespan(app: FastAPI):
     
     # 关闭时清理
     logger.info("正在关闭后端服务...")
-    db_manager = get_db_manager()
+    
+    # 清理任务管理器
+    from app.core.task_manager import cleanup_task_manager
+    await cleanup_task_manager()
+    
+    # 清理数据库连接
+    db_manager = await get_db_manager()
     if db_manager:
         db_manager.close()
 
@@ -85,14 +94,55 @@ def create_app() -> FastAPI:
     app.include_router(websocket.router, prefix="/ws", tags=["WebSocket"])
     app.include_router(system.router, prefix="/system", tags=["系统管理"])
 
-    # 全局异常处理
+    # 全局异常处理 - 改进错误信息处理，避免泄露内部细节
     @app.exception_handler(Exception)
     async def global_exception_handler(request, exc):
+        import traceback
+        from fastapi import HTTPException
+        
+        # 记录详细的错误信息到日志
         logger.error(f"全局异常: {exc}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": f"服务器内部错误: {str(exc)}"}
-        )
+        
+        # 对于不同类型的异常返回不同的错误信息
+        if isinstance(exc, HTTPException):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail}
+            )
+        elif isinstance(exc, ValueError):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "请求参数错误"}
+            )
+        elif isinstance(exc, FileNotFoundError):
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "请求的资源不存在"}
+            )
+        else:
+            # 对于其他异常，不暴露内部错误细节
+            error_id = f"ERR_{int(time.time() * 1000)}"
+            logger.error(f"内部错误 {error_id}: {traceback.format_exc()}")
+            
+            if settings.DEBUG:
+                # 开发模式下返回详细错误
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "detail": f"服务器内部错误: {str(exc)}",
+                        "error_id": error_id,
+                        "debug_info": traceback.format_exc()
+                    }
+                )
+            else:
+                # 生产模式下只返回通用错误信息
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "detail": "服务器内部错误，请稍后重试",
+                        "error_id": error_id
+                    }
+                )
 
     # 404 处理
     @app.exception_handler(404)

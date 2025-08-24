@@ -134,12 +134,24 @@ class DatabaseManager:
                 raise
 
 
-# 全局数据库管理器实例
+# 全局数据库管理器实例，添加线程锁保证并发安全
 _db_manager: Optional[DatabaseManager] = None
+_db_manager_lock = asyncio.Lock()
 
 
-def get_db_manager() -> DatabaseManager:
-    """获取数据库管理器实例"""
+async def get_db_manager() -> DatabaseManager:
+    """获取数据库管理器实例（线程安全，异步版本）"""
+    global _db_manager
+    if _db_manager is None:
+        async with _db_manager_lock:
+            # 双重检查锁定模式
+            if _db_manager is None:
+                _db_manager = DatabaseManager(settings.DATABASE_URL)
+    return _db_manager
+
+
+def get_db_manager_sync() -> DatabaseManager:
+    """获取数据库管理器实例（同步版本，用于向后兼容）"""
     global _db_manager
     if _db_manager is None:
         _db_manager = DatabaseManager(settings.DATABASE_URL)
@@ -148,7 +160,7 @@ def get_db_manager() -> DatabaseManager:
 
 async def init_database():
     """初始化数据库"""
-    db = get_db_manager()
+    db = await get_db_manager()
     await db.connect()
     
     try:
@@ -368,7 +380,7 @@ async def get_database_stats() -> Dict[str, Any]:
         result = await db.execute("SELECT COUNT(*) FROM labels")
         stats['labels_count'] = result[0][0]
         
-        result = await db.execute("SELECT COUNT(DISTINCT label_name) FROM labels")
+        result = await db.execute("SELECT COUNT(DISTINCT name) FROM labels")
         stats['unique_labels'] = result[0][0]
         
         # 实验统计

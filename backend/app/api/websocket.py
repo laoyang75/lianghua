@@ -88,13 +88,15 @@ async def send_task_update(task_id: str, status: str, progress: int = 0, message
     
     这个函数可以被其他模块调用来发送任务状态更新
     """
+    from datetime import datetime
+    
     event = {
         "type": "task_progress",
         "task_id": task_id,
         "status": status,
         "progress": progress,
         "message": message,
-        "timestamp": "2023-01-01T00:00:00Z"  # TODO: 使用真实时间戳
+        "timestamp": datetime.now().isoformat() + "Z"
     }
     
     message_str = json.dumps(event)

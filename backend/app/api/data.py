@@ -113,8 +113,15 @@ async def start_data_download(request: DataDownloadRequest):
                 from loguru import logger
                 logger.error(f"后台下载任务失败: {e}")
         
-        # 启动后台任务
-        asyncio.create_task(background_download())
+        # 启动后台任务，使用任务管理器
+        from app.core.task_manager import get_task_manager
+        task_manager = get_task_manager()
+        await task_manager.create_task(
+            task_id=f"download_{task_id}",
+            coro=background_download(),
+            task_type="data_download",
+            metadata={"universes": request.universes, "date_range": f"{request.start_date}-{request.end_date}"}
+        )
         
         return TaskResponse(
             task_id=task_id,

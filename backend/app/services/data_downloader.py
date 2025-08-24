@@ -180,11 +180,30 @@ class DataDownloader:
     ) -> Dict[str, Any]:
         """下载单只股票数据"""
         
-        # 在线程池中执行同步的yfinance操作
-        loop = asyncio.get_event_loop()
-        data = await loop.run_in_executor(
-            None, self._fetch_yahoo_data, symbol, start_date, end_date
-        )
+        # 在线程池中执行同步的yfinance操作，使用推荐的API
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+        
+        # 设置超时和重试
+        max_retries = 3
+        timeout = 30  # 30秒超时
+        
+        for attempt in range(max_retries):
+            try:
+                data = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, self._fetch_yahoo_data, symbol, start_date, end_date
+                    ),
+                    timeout=timeout
+                )
+                break
+            except asyncio.TimeoutError:
+                if attempt == max_retries - 1:
+                    raise ValueError(f"股票 {symbol} 下载超时 ({timeout}秒)")
+                logger.warning(f"股票 {symbol} 下载超时，重试 {attempt + 1}/{max_retries}")
+                await asyncio.sleep(1)  # 等待1秒后重试
         
         if data is None or data.empty:
             raise ValueError(f"股票 {symbol} 没有可用数据")
