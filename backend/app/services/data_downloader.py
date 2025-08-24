@@ -22,8 +22,13 @@ class DataDownloader:
     """数据下载器"""
     
     def __init__(self):
-        self.db = get_db_manager()
+        self.db = None
         self.active_tasks: Dict[str, Dict[str, Any]] = {}
+    
+    async def _ensure_db(self):
+        """确保数据库连接"""
+        if self.db is None:
+            self.db = await get_db_manager()
     
     async def download_universe_data(
         self,
@@ -33,6 +38,8 @@ class DataDownloader:
         task_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """下载指定股票池的数据"""
+        
+        await self._ensure_db()
         
         if not task_id:
             task_id = f"download_{uuid.uuid4().hex[:8]}"
@@ -91,8 +98,8 @@ class DataDownloader:
                 "AMD", "INTC", "CRM", "ORCL", "ADBE", "NOW", "INTU", "QCOM",
                 "AVGO", "TXN", "LRCX", "ADI", "KLAC", "MRVL", "FTNT", "PANW",
                 "CRWD", "ZS", "OKTA", "SNOW", "NET", "DDOG", "MDB", "PLTR",
-                # 生物科技
-                "MRNA", "BNTX", "REGN", "GILD", "VRTX", "BIIB", "AMGN", "CELG"
+                # 生物科技 (移除CELG - 已被BMY收购)
+                "MRNA", "BNTX", "REGN", "GILD", "VRTX", "BIIB", "AMGN", "BMY"
             ],
             "nyse": [
                 # 传统蓝筹股

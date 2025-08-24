@@ -17,6 +17,13 @@ import os
 import sys
 from pathlib import Path
 
+# 导入共享配置
+try:
+    from shared_config import get_config
+    SHARED_CONFIG_AVAILABLE = True
+except ImportError:
+    SHARED_CONFIG_AVAILABLE = False
+
 
 class UnifiedServiceManager:
     def __init__(self):
@@ -24,12 +31,35 @@ class UnifiedServiceManager:
         self.root.title("量化回测系统 - 统一服务管理器")
         self.root.geometry("1000x700")
         
+        # 初始化配置
+        self.load_shared_config()
+        
+        self.monitoring = False
+        self.setup_ui()
+        self.start_monitoring()
+        
+    def load_shared_config(self):
+        """加载共享配置"""
+        # 默认配置
+        backend_port = 5318
+        frontend_port = 5173
+        backend_host = "localhost"
+        
+        if SHARED_CONFIG_AVAILABLE:
+            try:
+                config = get_config()
+                backend_port = config.get('backend.port', 5318)
+                frontend_port = config.get('frontend.port', 5173)
+                backend_host = config.get('backend.host', 'localhost')
+            except Exception as e:
+                print(f"警告：无法加载共享配置，使用默认值: {e}")
+        
         # 服务配置
         self.services = {
             "backend": {
                 "name": "后端API服务",
-                "port": 5318,
-                "url": "http://localhost:5318",
+                "port": backend_port,
+                "url": f"http://{backend_host}:{backend_port}",
                 "health_endpoint": "/healthz",
                 "status": "unknown",
                 "pid": None,
@@ -37,18 +67,14 @@ class UnifiedServiceManager:
             },
             "frontend": {
                 "name": "前端开发服务器", 
-                "port": 5173,
-                "url": "http://localhost:5173",
+                "port": frontend_port,
+                "url": f"http://localhost:{frontend_port}",
                 "health_endpoint": "/",
                 "status": "unknown", 
                 "pid": None,
                 "process_name": "npm"
             }
         }
-        
-        self.monitoring = False
-        self.setup_ui()
-        self.start_monitoring()
         
     def setup_ui(self):
         """设置用户界面"""
@@ -128,9 +154,9 @@ class UnifiedServiceManager:
         self.frontend_stop_btn.pack(side=tk.LEFT, padx=2)
         
         # 端口信息
-        ttk.Label(services_frame, text="后端端口: 5318", foreground="blue").grid(
+        ttk.Label(services_frame, text=f"后端端口: {self.services['backend']['port']}", foreground="blue").grid(
             row=0, column=3, sticky=tk.W, padx=(20, 0))
-        ttk.Label(services_frame, text="前端端口: 5173", foreground="blue").grid(
+        ttk.Label(services_frame, text=f"前端端口: {self.services['frontend']['port']}", foreground="blue").grid(
             row=1, column=3, sticky=tk.W, padx=(20, 0))
         
     def setup_links_frame(self, parent):
@@ -140,15 +166,15 @@ class UnifiedServiceManager:
         
         # 前端链接
         ttk.Button(links_frame, text="🌐 打开前端应用", 
-                  command=lambda: self.open_url("http://localhost:5173")).pack(fill=tk.X, pady=2)
+                  command=lambda: self.open_url(self.services["frontend"]["url"])).pack(fill=tk.X, pady=2)
         
         # API文档链接
         ttk.Button(links_frame, text="📚 API文档", 
-                  command=lambda: self.open_url("http://localhost:5318/docs")).pack(fill=tk.X, pady=2)
+                  command=lambda: self.open_url(f"{self.services['backend']['url']}/docs")).pack(fill=tk.X, pady=2)
         
         # 健康检查
         ttk.Button(links_frame, text="💚 后端健康检查", 
-                  command=lambda: self.open_url("http://localhost:5318/healthz")).pack(fill=tk.X, pady=2)
+                  command=lambda: self.open_url(f"{self.services['backend']['url']}/healthz")).pack(fill=tk.X, pady=2)
         
         ttk.Separator(links_frame, orient='horizontal').pack(fill=tk.X, pady=10)
         
@@ -190,6 +216,7 @@ class UnifiedServiceManager:
         
         self.api_log = scrolledtext.ScrolledText(api_frame, height=15, font=("Consolas", 9))
         self.api_log.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self._setup_text_context_menu(self.api_log)
         
         # 后端日志页
         backend_frame = ttk.Frame(self.notebook)
@@ -199,6 +226,7 @@ class UnifiedServiceManager:
         
         self.backend_log = scrolledtext.ScrolledText(backend_frame, height=15, font=("Consolas", 9))
         self.backend_log.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self._setup_text_context_menu(self.backend_log)
         
         # 添加日志控制按钮
         log_control_frame = ttk.Frame(backend_frame)
@@ -206,6 +234,8 @@ class UnifiedServiceManager:
         
         ttk.Button(log_control_frame, text="刷新后端日志", command=self.refresh_backend_log).pack(side=tk.LEFT, padx=5)
         ttk.Button(log_control_frame, text="清空显示", command=self.clear_backend_log).pack(side=tk.LEFT, padx=5)
+        ttk.Button(log_control_frame, text="复制选中", command=lambda: self._copy_selected_text(self.backend_log)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(log_control_frame, text="复制全部", command=lambda: self._copy_all_text(self.backend_log)).pack(side=tk.LEFT, padx=5)
         
     def start_monitoring(self):
         """启动监控线程"""
@@ -231,10 +261,12 @@ class UnifiedServiceManager:
     def check_backend_status(self):
         """检查后端服务状态"""
         try:
-            response = requests.get("http://localhost:5318/healthz", timeout=2)
+            health_url = f"{self.services['backend']['url']}/healthz"
+            response = requests.get(health_url, timeout=2)
             if response.status_code == 200:
                 self.services["backend"]["status"] = "running"
-                self.backend_status.config(text="🟢 运行中 (5318)", foreground="green")
+                port = self.services['backend']['port']
+                self.backend_status.config(text=f"🟢 运行中 ({port})", foreground="green")
             else:
                 raise requests.RequestException("非200响应")
         except:
@@ -244,11 +276,12 @@ class UnifiedServiceManager:
     def check_frontend_status(self):
         """检查前端服务状态"""
         try:
-            response = requests.get("http://localhost:5173", timeout=2)
+            response = requests.get(self.services["frontend"]["url"], timeout=2)
             # Vite开发服务器通常返回HTML页面
             if response.status_code == 200:
                 self.services["frontend"]["status"] = "running"
-                self.frontend_status.config(text="🟢 运行中 (5173)", foreground="green")
+                port = self.services['frontend']['port']
+                self.frontend_status.config(text=f"🟢 运行中 ({port})", foreground="green")
             else:
                 raise requests.RequestException("非200响应")
         except:
@@ -351,7 +384,11 @@ class UnifiedServiceManager:
                     creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
                 )
                 
+                # 保存PID到服务信息
+                self.services["frontend"]["pid"] = process.pid
+                
                 self.log_message("✅ 前端开发服务器启动命令已执行")
+                self.log_message(f"💡 前端服务器PID: {process.pid}")
                 self.log_message("💡 前端服务器会在新的控制台窗口中运行")
                 
             except Exception as e:
@@ -365,19 +402,39 @@ class UnifiedServiceManager:
         
         def run_stop():
             try:
-                # 查找并杀掉前端进程
+                # 优先使用保存的PID
+                frontend_pid = self.services["frontend"].get("pid")
+                if frontend_pid:
+                    try:
+                        proc = psutil.Process(frontend_pid)
+                        if proc.is_running():
+                            proc.terminate()
+                            self.log_message(f"✅ 停止前端进程 PID: {frontend_pid}")
+                            self.services["frontend"]["pid"] = None
+                            return
+                    except psutil.NoSuchProcess:
+                        self.log_message("⚠️ 保存的前端PID已不存在，尝试查找进程")
+                
+                # 如果PID方式失败，回退到进程查找
+                stopped = False
+                frontend_port = str(self.services['frontend']['port'])
                 for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                     try:
                         cmdline = proc.info.get('cmdline', [])
                         if cmdline and any('vite' in str(cmd).lower() for cmd in cmdline):
-                            if any('5173' in str(cmd) for cmd in cmdline):
+                            if any(frontend_port in str(cmd) for cmd in cmdline):
                                 proc.terminate()
                                 self.log_message(f"✅ 停止前端进程 PID: {proc.info['pid']}")
-                                return
+                                stopped = True
+                                break
                     except:
                         continue
-                        
-                self.log_message("⚠️ 未找到前端进程")
+                
+                if not stopped:
+                    self.log_message("⚠️ 未找到前端进程")
+                
+                # 清理PID记录
+                self.services["frontend"]["pid"] = None
                 
             except Exception as e:
                 self.log_message(f"❌ 停止前端服务时出错: {e}")
@@ -398,7 +455,7 @@ class UnifiedServiceManager:
         
         def run_test():
             try:
-                url = f"http://localhost:5318{endpoint}"
+                url = f"{self.services['backend']['url']}{endpoint}"
                 response = requests.get(url, timeout=5)
                 
                 if response.status_code == 200:
@@ -472,6 +529,61 @@ class UnifiedServiceManager:
         """关闭时清理"""
         self.monitoring = False
         self.root.destroy()
+    
+    def _setup_text_context_menu(self, text_widget):
+        """为文本组件设置右键菜单"""
+        context_menu = tk.Menu(self.root, tearoff=0)
+        context_menu.add_command(label="复制选中", command=lambda: self._copy_selected_text(text_widget))
+        context_menu.add_command(label="复制全部", command=lambda: self._copy_all_text(text_widget))
+        context_menu.add_command(label="全选", command=lambda: self._select_all_text(text_widget))
+        context_menu.add_separator()
+        context_menu.add_command(label="清空", command=lambda: text_widget.delete(1.0, tk.END))
+        
+        def show_context_menu(event):
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            except Exception:
+                pass
+            finally:
+                context_menu.grab_release()
+        
+        text_widget.bind("<Button-3>", show_context_menu)  # 右键点击
+    
+    def _copy_selected_text(self, text_widget):
+        """复制选中的文本到剪贴板"""
+        try:
+            selected_text = text_widget.get(tk.SEL_FIRST, tk.SEL_LAST)
+            if selected_text:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(selected_text)
+                self.log_message("📋 已复制选中文本")
+            else:
+                self.log_message("⚠️ 没有选中文本")
+        except tk.TclError:
+            self.log_message("⚠️ 没有选中文本")
+    
+    def _copy_all_text(self, text_widget):
+        """复制全部文本到剪贴板"""
+        try:
+            all_text = text_widget.get(1.0, tk.END)
+            if all_text.strip():
+                self.root.clipboard_clear()
+                self.root.clipboard_append(all_text)
+                self.log_message("📋 已复制全部文本")
+            else:
+                self.log_message("⚠️ 没有文本可复制")
+        except Exception as e:
+            self.log_message(f"❌ 复制失败: {e}")
+    
+    def _select_all_text(self, text_widget):
+        """全选文本"""
+        try:
+            text_widget.tag_add(tk.SEL, "1.0", tk.END)
+            text_widget.mark_set(tk.INSERT, "1.0")
+            text_widget.see(tk.INSERT)
+            self.log_message("✅ 已全选文本")
+        except Exception as e:
+            self.log_message(f"❌ 全选失败: {e}")
 
 
 if __name__ == "__main__":

@@ -300,7 +300,7 @@ async def init_database():
 
 async def get_schema_version() -> int:
     """获取当前schema版本"""
-    db = get_db_manager()
+    db = await get_db_manager()
     try:
         result = await db.execute("SELECT MAX(version) FROM schema_version")
         version = result[0][0] if result and result[0][0] is not None else 0
@@ -356,7 +356,7 @@ async def cleanup_old_backups():
 
 async def get_database_stats() -> Dict[str, Any]:
     """获取数据库统计信息"""
-    db = get_db_manager()
+    db = await get_db_manager()
     
     try:
         # 获取各表的记录数
@@ -405,7 +405,7 @@ async def get_database_stats() -> Dict[str, Any]:
 
 async def apply_schema_migrations(current_version: int):
     """应用数据库schema迁移"""
-    db = get_db_manager()
+    db = await get_db_manager()
     target_version = 1  # 当前最新版本
     
     if current_version >= target_version:
@@ -437,7 +437,7 @@ async def apply_schema_migrations(current_version: int):
 
 async def validate_database_integrity():
     """验证数据库完整性"""
-    db = get_db_manager()
+    db = await get_db_manager()
     
     try:
         # 检查必需的表是否存在（使用DuckDB语法）
@@ -478,7 +478,7 @@ async def restore_database_from_backup(backup_path: str):
             raise FileNotFoundError(f"备份文件不存在: {backup_path}")
         
         # 关闭当前数据库连接
-        db = get_db_manager()
+        db = await get_db_manager()
         await db.disconnect()
         
         # 备份当前数据库（以防恢复失败）

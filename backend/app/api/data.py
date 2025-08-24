@@ -46,7 +46,7 @@ async def get_data_status():
     返回数据库中股票数据的基本统计信息
     """
     try:
-        db = get_db_manager()
+        db = await get_db_manager()
         
         # 检查是否有数据
         result = await db.execute("SELECT COUNT(*) FROM prices_daily")
@@ -140,7 +140,7 @@ async def get_symbols(limit: int = 100, offset: int = 0):
     获取数据库中的股票列表
     """
     try:
-        db = get_db_manager()
+        db = await get_db_manager()
         
         result = await db.execute("""
             SELECT DISTINCT symbol, MIN(date) as first_date, MAX(date) as last_date, COUNT(*) as record_count
@@ -176,7 +176,7 @@ async def get_symbol_data(
     获取指定股票的历史数据
     """
     try:
-        db = get_db_manager()
+        db = await get_db_manager()
         
         # 构建查询条件
         conditions = ["symbol = ?"]

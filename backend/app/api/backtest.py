@@ -103,3 +103,29 @@ async def get_strategies():
             }
         ]
     }
+
+
+@router.get("/labels", summary="获取可用标签列表")
+async def get_backtest_labels():
+    """获取可用于回测的标签列表"""
+    try:
+        from app.services.label_calculator import get_label_calculator
+        
+        calculator = get_label_calculator()
+        labels = await calculator.get_labels_list()
+        
+        # 转换为回测需要的格式
+        backtest_labels = []
+        for label in labels:
+            backtest_labels.append({
+                "name": label["name"],
+                "rule": label["rule"], 
+                "date_range": f"{label['start_date']} ~ {label['end_date']}",
+                "stock_count": label["stock_count"],
+                "created_at": label["created_at"]
+            })
+        
+        return {"labels": backtest_labels}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取标签列表失败: {str(e)}")

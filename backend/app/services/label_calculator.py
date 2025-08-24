@@ -21,8 +21,13 @@ class LabelCalculator:
     """标签计算引擎"""
     
     def __init__(self):
-        self.db = get_db_manager()
+        self.db = None
         self.active_tasks: Dict[str, Dict[str, Any]] = {}
+    
+    async def _ensure_db(self):
+        """确保数据库连接"""
+        if self.db is None:
+            self.db = await get_db_manager()
     
     async def calculate_label(
         self,
@@ -384,6 +389,7 @@ class LabelCalculator:
     
     async def get_labels_list(self) -> List[Dict[str, Any]]:
         """获取标签列表"""
+        await self._ensure_db()
         result = await self.db.execute("""
             SELECT l.name, l.rule, l.start_date, l.end_date, l.created_at,
                    COUNT(ls.symbol) as stock_count
@@ -408,6 +414,7 @@ class LabelCalculator:
     
     async def get_label_stocks(self, label_name: str) -> List[Dict[str, Any]]:
         """获取标签的股票列表"""
+        await self._ensure_db()
         result = await self.db.execute("""
             SELECT symbol, rank, score, metadata_json
             FROM label_stocks
@@ -434,6 +441,7 @@ class LabelCalculator:
     async def delete_label(self, label_name: str) -> bool:
         """删除标签"""
         try:
+            await self._ensure_db()
             # 删除标签股票数据
             await self.db.execute("DELETE FROM label_stocks WHERE label_name = ?", (label_name,))
             # 删除标签记录

@@ -29,7 +29,9 @@
       "Bash(git push:*)",
       "Bash(start http://localhost:5173)",
       "Bash(start D:AICursorlianghuatest-download.html)",
-      "Bash(start:*)"
+      "Bash(start:*)",
+      "Bash(timeout:*)",
+      "Bash(del nul)"
     ],
     "deny": [],
     "ask": [],

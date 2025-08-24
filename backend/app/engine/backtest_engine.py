@@ -17,8 +17,13 @@ class BacktestEngine:
     """回测引擎主类"""
     
     def __init__(self):
-        self.db = get_db_manager()
+        self.db = None
         self.results: Optional[Dict] = None
+        
+    async def _ensure_db(self):
+        """确保数据库连接"""
+        if self.db is None:
+            self.db = await get_db_manager()
         
     async def run_backtest(
         self,
@@ -31,6 +36,8 @@ class BacktestEngine:
         top_k: int = 20,
         **strategy_params
     ) -> Dict[str, Any]:
+        
+        await self._ensure_db()
         """
         执行回测
         
