@@ -3,71 +3,103 @@
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict, Any
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
+
+from app.engine.backtest_engine import BacktestEngine
 
 router = APIRouter()
 
 
-class StrategyCfg(BaseModel):
-    """策略配置"""
-    name: str
-    buy_timing: str
-    sell_timing: str
-    hold_days: int
-    execution_frequency: int
-    execution_count: int
-    positioning: str
-    initial_capital: float
-    filter_rules: Dict[str, Any]
-
-
 class BacktestRequest(BaseModel):
     """回测请求"""
-    strategy_cfg: StrategyCfg
-    label_name: str
-    date_range: Dict[str, str]
+    strategy_type: str = Field(..., description="策略类型: 'momentum' 或 'mean_reversion'")
+    label_name: str = Field(..., description="标签名称")
+    start_date: str = Field(..., description="开始日期 YYYY-MM-DD")
+    end_date: str = Field(..., description="结束日期 YYYY-MM-DD") 
+    initial_capital: float = Field(default=1000000.0, description="初始资金")
+    rebalance_frequency: str = Field(default="monthly", description="调仓频率: daily/weekly/monthly")
+    top_k: int = Field(default=20, description="选择股票数量")
+    lookback_period: int = Field(default=20, description="回看期")
 
 
 class BacktestMetrics(BaseModel):
     """回测指标"""
     total_return: float = 0.0
-    ann_return: float = 0.0
+    annual_return: float = 0.0  
     max_drawdown: float = 0.0
     sharpe_ratio: float = 0.0
-    calmar_ratio: float = 0.0
+    total_trades: int = 0
     win_rate: float = 0.0
-    avg_trade_return: float = 0.0
 
 
 class BacktestResult(BaseModel):
     """回测结果"""
+    result_hash: str
+    strategy_type: str
+    label_name: str
+    start_date: str
+    end_date: str
+    initial_capital: float
     metrics: BacktestMetrics
     equity_curve: List[Dict[str, Any]] = []
     trades: List[Dict[str, Any]] = []
-    result_hash: str = ""
+    created_at: str
 
 
 @router.post("/run", response_model=BacktestResult, summary="运行回测")
 async def run_backtest(request: BacktestRequest):
-    """执行回测"""
+    """
+    执行回测
+    
+    支持动量和均值回归策略，基于给定的标签选择股票池进行回测
+    """
     try:
-        # TODO: 实现回测逻辑
+        engine = BacktestEngine()
         
-        # 返回模拟结果
-        return BacktestResult(
-            metrics=BacktestMetrics(
-                total_return=0.15,
-                ann_return=0.12,
-                max_drawdown=-0.08,
-                sharpe_ratio=1.2
-            ),
-            equity_curve=[
-                {"date": "2023-01-01", "value": 1.0},
-                {"date": "2023-12-31", "value": 1.15}
-            ],
-            trades=[],
-            result_hash="mock_hash_123"
+        result = await engine.run_backtest(
+            strategy_type=request.strategy_type,
+            label_name=request.label_name,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            initial_capital=request.initial_capital,
+            rebalance_frequency=request.rebalance_frequency,
+            top_k=request.top_k,
+            lookback_period=request.lookback_period
         )
+        
+        # 转换为API响应格式
+        return BacktestResult(
+            result_hash=result["result_hash"],
+            strategy_type=result["strategy_type"],
+            label_name=result["label_name"], 
+            start_date=result["start_date"],
+            end_date=result["end_date"],
+            initial_capital=result["initial_capital"],
+            metrics=BacktestMetrics(**result["metrics"]),
+            equity_curve=result["equity_curve"],
+            trades=result["trades"],
+            created_at=result["created_at"]
+        )
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"回测执行失败: {str(e)}")
+
+
+@router.get("/strategies", summary="获取可用策略列表") 
+async def get_strategies():
+    """获取支持的策略类型列表"""
+    return {
+        "strategies": [
+            {
+                "type": "momentum",
+                "name": "动量策略",
+                "description": "基于价格动量选择表现最好的股票"
+            },
+            {
+                "type": "mean_reversion", 
+                "name": "均值回归策略",
+                "description": "基于均值回归选择被低估的股票"
+            }
+        ]
+    }

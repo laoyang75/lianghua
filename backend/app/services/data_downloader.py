@@ -258,8 +258,8 @@ class DataDownloader:
             logger.error(f"现有列: {df.columns}")
             raise ValueError(f"DataFrame列数不匹配: 期望10列，实际{len(df.columns)}列")
         
-        # 存储到数据库
-        await self.db.insert_df("prices_daily", df, if_exists="append")
+        # 存储到数据库 - 使用upsert模式避免重复键错误
+        await self.db.insert_df("prices_daily", df, if_exists="upsert")
         
         # 获取日期范围信息
         date_min = df["date"].min()

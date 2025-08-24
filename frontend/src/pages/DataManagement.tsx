@@ -28,8 +28,12 @@ const DataManagement: React.FC = () => {
   // 加载数据状态
   useEffect(() => {
     loadDataStatus()
+    loadLabels()
     // 每30秒刷新一次数据状态
-    const interval = setInterval(loadDataStatus, 30000)
+    const interval = setInterval(() => {
+      loadDataStatus()
+      loadLabels()
+    }, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -56,16 +60,40 @@ const DataManagement: React.FC = () => {
     }
   }
 
+  // 加载标签列表
+  const loadLabels = async () => {
+    try {
+      const response = await apiClient.getLabels()
+      const backendLabels = response.labels.map((label: any) => ({
+        name: label.name,
+        rule: label.rule,
+        dateRange: `${label.start_date} 至 ${label.end_date}`,
+        status: label.stock_count > 0 ? 'completed' : 'computing',
+        recordCount: label.stock_count
+      }))
+      // 清空本地状态并加载后端数据
+      labels.splice(0, labels.length, ...backendLabels)
+    } catch (error) {
+      console.error('获取标签列表失败:', error)
+    }
+  }
+
   // 执行下载
   const handleDownload = async (universe: 'nasdaq' | 'nyse') => {
     setLoading(true)
+    console.log(`[DEBUG] 开始下载 ${universe} 数据`)
+    
     try {
-      const task = await apiClient.downloadData({
+      const requestData = {
         universes: [universe],
         start_date: dayjs().subtract(2, 'year').format('YYYY-MM-DD'),
         end_date: dayjs().format('YYYY-MM-DD'),
         source: 'yfinance'
-      })
+      }
+      console.log('[DEBUG] 请求数据:', requestData)
+      
+      const task = await apiClient.downloadData(requestData)
+      console.log('[DEBUG] API响应:', task)
       
       addDownloadTask({
         id: task.task_id,
@@ -75,8 +103,14 @@ const DataManagement: React.FC = () => {
         message: task.message
       })
       
-      message.success(`${universe.toUpperCase()}数据下载已开始`)
+      message.success(`${universe.toUpperCase()}数据下载已开始`, 3)
+      // 立即刷新数据状态以获取最新进度
+      setTimeout(() => {
+        loadDataStatus()
+      }, 1000)
     } catch (error: any) {
+      console.error('[DEBUG] 下载失败:', error)
+      console.error('[DEBUG] 错误详情:', error.response?.data)
       message.error(`下载失败: ${error.response?.data?.detail || error.message}`)
     } finally {
       setLoading(false)
@@ -99,19 +133,14 @@ const DataManagement: React.FC = () => {
         }
       })
 
-      const labelName = `${rule}_${startDate.format('YYYYMMDD')}_${endDate.format('YYYYMMDD')}`
-      
-      addLabel({
-        name: labelName,
-        rule,
-        dateRange: `${startDate.format('YYYY-MM-DD')} 至 ${endDate.format('YYYY-MM-DD')}`,
-        status: 'computing',
-        recordCount: 0
-      })
-
       message.success('标签计算已开始')
       setIsModalVisible(false)
       form.resetFields()
+      
+      // 立即刷新标签列表
+      setTimeout(() => {
+        loadLabels()
+      }, 1000)
     } catch (error: any) {
       message.error(`创建标签失败: ${error.response?.data?.detail || error.message}`)
     }
@@ -236,21 +265,32 @@ const DataManagement: React.FC = () => {
           </div>
         </Space>
 
-        {/* 下载进度 */}
-        {downloadTasks.length > 0 && (
-          <div style={{ marginTop: '20px' }}>
-            <h4>下载进度</h4>
-            {downloadTasks.map(task => (
-              <div key={task.id} style={{ marginBottom: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <span>{task.type.toUpperCase()} - {task.message}</span>
-                  <span>{task.progress}%</span>
+        {/* 下载进度 - 始终显示区域以便用户了解状态 */}
+        <div style={{ marginTop: '20px' }}>
+          <h4>下载进度 {downloadTasks.length > 0 && `(${downloadTasks.length}个任务)`}</h4>
+          {downloadTasks.length === 0 ? (
+            <p style={{ color: '#666', fontStyle: 'italic' }}>暂无下载任务</p>
+          ) : (
+            downloadTasks.map(task => (
+              <div key={task.id} style={{ marginBottom: '12px', padding: '12px', border: '1px solid #f0f0f0', borderRadius: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span><strong>{task.type.toUpperCase()}</strong> - {task.message}</span>
+                  <span style={{ fontWeight: 'bold', color: task.status === 'failed' ? '#ff4d4f' : '#1890ff' }}>
+                    {task.progress}%
+                  </span>
                 </div>
-                <Progress percent={task.progress} status={task.status === 'failed' ? 'exception' : 'normal'} />
+                <Progress 
+                  percent={task.progress} 
+                  status={task.status === 'failed' ? 'exception' : task.status === 'completed' ? 'success' : 'active'} 
+                  strokeColor={task.status === 'failed' ? '#ff4d4f' : undefined}
+                />
+                <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                  任务ID: {task.id} | 状态: {task.status}
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+            ))
+          )}
+        </div>
       </Card>
 
       {/* 数据标签管理 */}

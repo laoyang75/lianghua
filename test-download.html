@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>API测试页面</h1>
+    <button onclick="testDownload()">测试下载API</button>
+    <div id="result"></div>
+
+    <script>
+    async function testDownload() {
+        const resultDiv = document.getElementById('result');
+        resultDiv.innerHTML = '测试中...';
+        
+        try {
+            const response = await fetch('http://localhost:5318/data/download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    universes: ['nasdaq'],
+                    start_date: '2022-08-24',
+                    end_date: '2024-08-24',
+                    source: 'yfinance'
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                resultDiv.innerHTML = `<pre>成功: ${JSON.stringify(data, null, 2)}</pre>`;
+            } else {
+                const error = await response.text();
+                resultDiv.innerHTML = `<pre>错误: ${error}</pre>`;
+            }
+        } catch (error) {
+            resultDiv.innerHTML = `<pre>网络错误: ${error.message}</pre>`;
+        }
+    }
+    </script>
+</body>
+</html>

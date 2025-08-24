@@ -48,6 +48,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
         // 连接WebSocket监听任务状态
         wsClient.connect((event) => {
+          console.log('[DEBUG] WebSocket消息:', event)
           handleWebSocketMessage(event)
         })
 
@@ -204,8 +205,10 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           style={{ 
             background: '#001529', 
             border: 'none',
-            padding: '16px 0'
+            padding: '16px 0',
+            color: '#ffffff'
           }}
+          className="sidebar-menu"
           items={menuItems.map(item => ({
             ...item,
             label: (
@@ -293,6 +296,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
 
         {/* 页面内容 */}
         <Content
+          className="main-content"
           style={{
             margin: 0,
             minHeight: 'calc(100vh - 64px)',

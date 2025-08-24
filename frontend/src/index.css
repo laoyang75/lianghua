@@ -46,12 +46,73 @@ code {
   box-shadow: 2px 0 6px rgba(0, 21, 41, 0.35);
 }
 
-.ant-menu-item-selected {
-  background-color: #e6f7ff !important;
+/* 侧边栏菜单样式 */
+.sidebar-menu.ant-menu-dark .ant-menu-item {
+  color: #ffffff !important;
 }
 
-.ant-menu-item:hover {
-  background-color: #f0f0f0 !important;
+.sidebar-menu.ant-menu-dark .ant-menu-item-selected {
+  background-color: #1890ff !important;
+  color: #ffffff !important;
+}
+
+.sidebar-menu.ant-menu-dark .ant-menu-item:hover {
+  background-color: #003a8c !important;
+  color: #ffffff !important;
+}
+
+.sidebar-menu.ant-menu-dark .ant-menu-item .anticon {
+  color: #ffffff !important;
+}
+
+/* 修复侧边栏Badge组件颜色继承问题 */
+.sidebar-menu .ant-badge-count {
+  background-color: #ff4d4f !important;
+  color: #ffffff !important;
+  border-color: #ff4d4f !important;
+}
+
+.sidebar-menu .ant-menu-item .ant-badge {
+  color: #ffffff !important;
+}
+
+.sidebar-menu .ant-menu-item .ant-badge .ant-badge-count {
+  color: #ffffff !important;
+}
+
+/* 右侧内容区统一走浅色 */
+.main-content {
+  background: #f0f2f5 !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
+/* 常用容器保证白底，提升对比度 */
+.main-content .content-card,
+.main-content .result-section,
+.main-content .chart-container,
+.main-content .form-section,
+.main-content .metric-item,
+.main-content .stat-card {
+  background: #ffffff !important;
+}
+
+/* 统一主内容区域为浅色模式的文字颜色，避免深色文字在深色背景上不可见 */
+.main-content .content-card .ant-card-head-title,
+.main-content .stat-label,
+.main-content .progress-text,
+.main-content .metric-label,
+.main-content .loading-text,
+.main-content .form-section-title,
+.main-content .metric-label {
+  color: rgba(0, 0, 0, 0.85) !important;
+}
+
+/* 次要文字统一使用浅色模式的次要文字色 */
+.main-content .ant-table-thead > tr > th,
+.main-content .ant-descriptions-item-label,
+.main-content p,
+.main-content .ant-typography {
+  color: rgba(0, 0, 0, 0.65) !important;
 }
 
 /* 卡片样式 */
@@ -67,7 +128,7 @@ code {
 
 .content-card .ant-card-head-title {
   font-weight: 600;
-  color: #262626;
+  color: rgba(0, 0, 0, 0.85);
 }
 
 /* 状态指示器 */
@@ -123,7 +184,7 @@ code {
 
 .stat-label {
   font-size: 14px;
-  color: #666;
+  color: rgba(0, 0, 0, 0.65);
 }
 
 /* 进度条容器 */
@@ -137,7 +198,7 @@ code {
 .progress-text {
   min-width: 120px;
   font-size: 14px;
-  color: #666;
+  color: rgba(0, 0, 0, 0.65);
 }
 
 /* 响应式设计 */
@@ -178,7 +239,7 @@ code {
 .form-section-title {
   font-size: 16px;
   font-weight: 600;
-  color: #262626;
+  color: rgba(0, 0, 0, 0.85);
   margin-bottom: 16px;
   border-bottom: 2px solid #1890ff;
   padding-bottom: 8px;
@@ -217,7 +278,7 @@ code {
 
 .metric-label {
   font-size: 14px;
-  color: #666;
+  color: rgba(0, 0, 0, 0.65);
 }
 
 /* 图表容器 */
@@ -240,6 +301,6 @@ code {
 }
 
 .loading-text {
-  color: #666;
+  color: rgba(0, 0, 0, 0.65);
   font-size: 14px;
 }

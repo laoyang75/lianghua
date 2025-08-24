@@ -113,7 +113,19 @@ class DatabaseManager:
                     self.conn.execute(f"DROP TABLE IF EXISTS {table_name}")
                 
                 self.conn.register("temp_df", arrow_table)
-                self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM temp_df")
+                
+                # 根据不同模式处理数据插入
+                if if_exists == "upsert" and table_name == "prices_daily":
+                    # 对于股价数据，使用 INSERT OR REPLACE 语法避免重复键错误
+                    # DuckDB 使用 INSERT OR REPLACE 而不是 ON CONFLICT
+                    self.conn.execute(f"""
+                        INSERT OR REPLACE INTO {table_name} 
+                        SELECT * FROM temp_df
+                    """)
+                else:
+                    # 默认插入模式
+                    self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM temp_df")
+                
                 self.conn.unregister("temp_df")
                 
                 logger.debug(f"插入{len(df)}行数据到表 {table_name}")
