@@ -23,7 +23,8 @@
       "Bash(start http://localhost:5180)",
       "Bash(start http://localhost:5182)",
       "Bash(manage.bat status)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": [],
