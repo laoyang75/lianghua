@@ -85,28 +85,37 @@ class LabelCalculator:
     ) -> List[Dict[str, Any]]:
         """执行具体的规则计算"""
         
-        await send_task_update(task_id, "running", 30, "加载股票数据...")
+        await send_task_update(task_id, "running", 30, "获取股票列表...")
         
-        # 获取指定时间范围内的股票数据
-        price_data = await self._load_price_data(start_date, end_date)
+        # 获取所有可用的股票符号列表
+        symbols = await self._get_available_symbols()
         
-        if price_data.is_empty():
-            raise ValueError("指定时间范围内没有可用的股票数据")
+        if not symbols:
+            raise ValueError("没有可用的股票数据")
         
-        await send_task_update(task_id, "running", 50, f"正在应用规则: {rule}")
+        await send_task_update(task_id, "running", 40, f"找到 {len(symbols)} 只股票，开始计算...")
         
-        # 根据规则类型执行计算
+        # 根据规则类型执行计算（使用逐只股票处理）
         if rule == "涨幅最大TOP20":
-            return await self._calculate_price_change_top(price_data, True, params, task_id)
+            return await self._calculate_price_change_top_optimized(symbols, start_date, end_date, True, params, task_id)
         elif rule == "跌幅最大TOP20":
-            return await self._calculate_price_change_top(price_data, False, params, task_id)
+            return await self._calculate_price_change_top_optimized(symbols, start_date, end_date, False, params, task_id)
         elif rule == "市值涨幅最大TOP20":
+            # 暂时使用旧方法，后续可以优化
+            await send_task_update(task_id, "running", 50, "加载股票数据...")
+            price_data = await self._load_price_data(start_date, end_date)
             return await self._calculate_market_cap_change_top(price_data, True, params, task_id)
         elif rule == "市值跌幅最大TOP20":
+            await send_task_update(task_id, "running", 50, "加载股票数据...")
+            price_data = await self._load_price_data(start_date, end_date)
             return await self._calculate_market_cap_change_top(price_data, False, params, task_id)
         elif rule == "成交量最大TOP20":
+            await send_task_update(task_id, "running", 50, "加载股票数据...")
+            price_data = await self._load_price_data(start_date, end_date)
             return await self._calculate_volume_top(price_data, params, task_id)
         elif rule == "换手率最高TOP20":
+            await send_task_update(task_id, "running", 50, "加载股票数据...")
+            price_data = await self._load_price_data(start_date, end_date)
             return await self._calculate_turnover_rate_top(price_data, params, task_id)
         else:
             raise ValueError(f"未知的规则类型: {rule}")
@@ -139,6 +148,130 @@ class LabelCalculator:
         })
         
         return df
+    
+    async def _load_price_data_for_symbol(self, symbol: str, start_date: str, end_date: str) -> pl.DataFrame:
+        """加载单只股票的价格数据"""
+        await self._ensure_db()
+        
+        query = """
+        SELECT symbol, date, open, high, low, close, volume, adj_close
+        FROM prices_daily
+        WHERE symbol = ? AND date >= ? AND date <= ?
+        ORDER BY date
+        """
+        
+        try:
+            result = await self.db.execute(query, (symbol, start_date, end_date))
+            
+            if not result:
+                return pl.DataFrame()
+            
+            # 转换为Polars DataFrame
+            df = pl.DataFrame({
+                "symbol": [row[0] for row in result],
+                "date": [row[1] for row in result],
+                "open": [float(row[2]) for row in result],
+                "high": [float(row[3]) for row in result],
+                "low": [float(row[4]) for row in result],
+                "close": [float(row[5]) for row in result],
+                "volume": [int(row[6]) for row in result],
+                "adj_close": [float(row[7]) for row in result]
+            })
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"加载股票 {symbol} 数据失败: {e}")
+            return pl.DataFrame()
+    
+    async def _get_available_symbols(self) -> List[str]:
+        """获取所有可用的股票符号列表"""
+        await self._ensure_db()
+        
+        query = "SELECT DISTINCT symbol FROM prices_daily ORDER BY symbol"
+        
+        try:
+            result = await self.db.execute(query)
+            symbols = [row[0] for row in result] if result else []
+            return symbols
+        except Exception as e:
+            logger.error(f"获取股票符号列表失败: {e}")
+            return []
+    
+    async def _calculate_price_change_top_optimized(
+        self,
+        symbols: List[str],
+        start_date: str,
+        end_date: str,
+        ascending: bool,  # True for 涨幅最大, False for 跌幅最大
+        params: Dict[str, Any],
+        task_id: str
+    ) -> List[Dict[str, Any]]:
+        """优化的涨跌幅TOP20计算 - 逐只股票处理避免内存问题"""
+        
+        stock_changes = []
+        total_symbols = len(symbols)
+        processed_symbols = 0
+        
+        logger.info(f"开始逐只计算 {total_symbols} 只股票的涨跌幅")
+        
+        for symbol in symbols:
+            try:
+                # 加载单只股票数据
+                symbol_data = await self._load_price_data_for_symbol(symbol, start_date, end_date)
+                
+                if symbol_data.is_empty() or len(symbol_data) < 2:
+                    logger.debug(f"股票 {symbol} 数据不足，跳过")
+                    processed_symbols += 1
+                    continue
+                
+                # 计算周期涨跌幅
+                first_price = symbol_data['close'].first()
+                last_price = symbol_data['close'].last()
+                
+                if first_price and last_price and first_price > 0:
+                    change_pct = (last_price - first_price) / first_price * 100
+                    
+                    # 应用市值过滤（如果有的话）
+                    min_market_cap = params.get('min_market_cap', 0)
+                    if min_market_cap > 0:
+                        # 简化的市值计算：收盘价 * 平均成交量
+                        estimated_market_cap = last_price * symbol_data['volume'].mean()
+                        if estimated_market_cap < min_market_cap:
+                            processed_symbols += 1
+                            continue
+                    
+                    stock_changes.append({
+                        'symbol': symbol,
+                        'change_pct': change_pct,
+                        'start_price': float(first_price),
+                        'end_price': float(last_price),
+                        'avg_volume': float(symbol_data['volume'].mean())
+                    })
+                
+                processed_symbols += 1
+                
+                # 更新进度 (40% + 50% * 处理进度)
+                progress = 40 + int((processed_symbols / total_symbols) * 50)
+                await send_task_update(task_id, "running", progress, 
+                                     f"已处理 {processed_symbols}/{total_symbols} 只股票")
+                
+                # 每处理10只股票暂停一下，避免过度占用资源
+                if processed_symbols % 10 == 0:
+                    await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                logger.warning(f"处理股票 {symbol} 时出错: {e}")
+                processed_symbols += 1
+                continue
+        
+        # 排序并取TOP20
+        stock_changes.sort(key=lambda x: x['change_pct'], reverse=not ascending)
+        top_stocks = stock_changes[:20]
+        
+        logger.info(f"计算完成，从 {total_symbols} 只股票中筛选出 {len(top_stocks)} 只")
+        
+        return top_stocks
     
     async def _calculate_price_change_top(
         self,

@@ -304,7 +304,27 @@ class DataDownloader:
         try:
             ticker = yf.Ticker(symbol)
             data = ticker.history(start=start_date, end=end_date)
+            
+            # 检查是否返回空DataFrame（yfinance失败时不会抛出异常，而是返回空数据）
+            if data.empty:
+                logger.warning(f"股票 {symbol} 在指定时间范围 {start_date} 到 {end_date} 内没有数据或下载失败")
+                raise ValueError(f"股票 {symbol} 没有可用数据")
+            
+            # 检查数据质量 - 确保有基本的价格列
+            required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            missing_columns = [col for col in required_columns if col not in data.columns]
+            if missing_columns:
+                logger.warning(f"股票 {symbol} 数据缺少必需列: {missing_columns}")
+                raise ValueError(f"股票 {symbol} 数据不完整，缺少列: {missing_columns}")
+            
+            # 检查是否有有效的价格数据
+            if data['Close'].isna().all():
+                logger.warning(f"股票 {symbol} 所有收盘价都是NaN")
+                raise ValueError(f"股票 {symbol} 没有有效的价格数据")
+            
+            logger.info(f"成功获取股票 {symbol} 数据，共 {len(data)} 条记录")
             return data
+            
         except Exception as e:
             logger.error(f"获取 {symbol} 数据失败: {e}")
             raise
