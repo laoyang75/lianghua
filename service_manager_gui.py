@@ -1042,6 +1042,9 @@ class ServiceManagerGUI:
     def _check_vite_ready(self):
         """检查Vite服务是否就绪"""
         import time
+        # 先等待3秒，给Vite足够时间完全启动并绑定端口
+        time.sleep(3)
+        
         max_attempts = 30  # 最多等待30秒
         attempt = 0
         

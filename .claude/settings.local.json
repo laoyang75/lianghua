@@ -35,7 +35,9 @@
       "Bash(cat:*)",
       "Bash(del:*)",
       "Bash(\"frontend/node_modules/.bin/electron\" start_service_console_only.js)",
-      "Bash(./cleanup_ports.bat)"
+      "Bash(./cleanup_ports.bat)",
+      "Bash(cleanup_all_nodes.bat)",
+      "Bash(cmd:*)"
     ],
     "deny": [],
     "ask": [],
